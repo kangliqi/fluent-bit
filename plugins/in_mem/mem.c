@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 #include <sys/sysinfo.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -34,6 +35,8 @@
 
 #include "mem.h"
 #include "proc.h"
+
+#define MAX_LINE 32
 
 struct flb_input_plugin in_mem_plugin;
 
@@ -109,12 +112,49 @@ static int mem_calc(struct flb_in_mem_info *m_info)
 
     m_info->mem_used      = m_info->mem_total - m_info->mem_free;
     m_info->mem_buffer    = calc_kb(info.bufferram, info.mem_unit);
-    m_info->mem_shared    = calc_kb(info.sharedram, info.mem_unit);
+    // m_info->mem_shared    = calc_kb(info.sharedram, info.mem_unit);
 
     m_info->swap_total    = calc_kb(info.totalswap, info.mem_unit);
     m_info->swap_free     = calc_kb(info.freeswap, info.mem_unit);
     m_info->swap_used     = m_info->swap_total - m_info->swap_free;
 
+    return 0;
+}
+
+static int mem_calc2(struct flb_in_mem_info *m_info) {
+    FILE *meminfo;
+    meminfo = fopen ("/proc/meminfo", "r");
+    if (meminfo == NULL) {
+        flb_errno();
+        return -1;
+    }
+
+    char line[MAX_LINE], name[20];
+    unsigned long value;
+    while (!feof(meminfo)) {
+        fgets(line, MAX_LINE, meminfo);
+        sscanf(line, "%s %lu", name, &value);
+
+        if (strcmp(name, "MemTotal:") == 0) {
+            m_info->mem_total = (uint64_t) value;
+        } else if (strcmp(name, "MemFree:") == 0) {
+            m_info->mem_free = (uint64_t) value;
+        } else if (strcmp(name, "MemAvailable:") == 0) {
+            m_info->mem_available = (uint64_t) value;
+        } else if (strcmp(name, "Buffers:") == 0) {
+            m_info->mem_buffer = (uint64_t) value;
+        } else if (strcmp(name, "Cached:") == 0) {
+            m_info->mem_cached = (uint64_t) value;
+        } else if (strcmp(name, "SwapTotal:") == 0) {
+            m_info->swap_total = (uint64_t) value;
+        } else if (strcmp(name, "SwapFree:") == 0) {
+            m_info->swap_free = (uint64_t) value;
+        }
+    }
+    m_info->mem_used      = m_info->mem_total - m_info->mem_free;
+    m_info->swap_used     = m_info->swap_total - m_info->swap_free;
+
+    fclose(meminfo);
     return 0;
 }
 
@@ -174,7 +214,7 @@ static int in_mem_collect(struct flb_input_instance *i_ins,
 {
     int ret;
     int len;
-    int entries = 8;/* (total,used,free) * (memory, swap) */
+    int entries = 9;/* (total,used,free) * (memory, swap) */
     struct proc_task *task = NULL;
     struct flb_in_mem_config *ctx = in_context;
     struct flb_in_mem_info info;
@@ -189,7 +229,7 @@ static int in_mem_collect(struct flb_input_instance *i_ins,
         }
     }
 
-    ret = mem_calc(&info);
+    ret = mem_calc2(&info);
 
     if (ret == -1) {
         if (task) {
@@ -228,8 +268,12 @@ static int in_mem_collect(struct flb_input_instance *i_ins,
     msgpack_pack_uint64(&mp_pck, info.mem_buffer);
 
     msgpack_pack_str(&mp_pck, 10);
-    msgpack_pack_str_body(&mp_pck, "Mem.shared", 10);
-    msgpack_pack_uint64(&mp_pck, info.mem_shared);
+    msgpack_pack_str_body(&mp_pck, "Mem.cached", 10);
+    msgpack_pack_uint64(&mp_pck, info.mem_cached);
+
+    msgpack_pack_str(&mp_pck, 13);
+    msgpack_pack_str_body(&mp_pck, "Mem.available", 13);
+    msgpack_pack_uint64(&mp_pck, info.mem_available);
 
     msgpack_pack_str(&mp_pck, 10);
     msgpack_pack_str_body(&mp_pck, "Swap.total", 10);
@@ -260,8 +304,8 @@ static int in_mem_collect(struct flb_input_instance *i_ins,
         proc_free(task);
     }
 
-    flb_plg_trace(ctx->ins, "memory total=%lu kb, used=%lu kb, free=%lu kb, buffer=%lu kb, shared=%lu kb",
-                  info.mem_total, info.mem_used, info.mem_free, info.mem_buffer, info.mem_shared);
+    flb_plg_trace(ctx->ins, "memory total=%lu kb, used=%lu kb, free=%lu kb, buffer=%lu kb, cached=%lu kb",
+                  info.mem_total, info.mem_used, info.mem_free, info.mem_buffer, info.mem_cached);
     flb_plg_trace(ctx->ins, "swap total=%lu kb, used=%lu kb, free=%lu kb",
                   info.swap_total, info.swap_used, info.swap_free);
     ++ctx->idx;
