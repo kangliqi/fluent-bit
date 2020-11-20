@@ -108,6 +108,8 @@ static int mem_calc(struct flb_in_mem_info *m_info)
     m_info->mem_free      = calc_kb(info.freeram, info.mem_unit);
 
     m_info->mem_used      = m_info->mem_total - m_info->mem_free;
+    m_info->mem_buffer    = calc_kb(info.bufferram, info.mem_unit);
+    m_info->mem_shared    = calc_kb(info.sharedram, info.mem_unit);
 
     m_info->swap_total    = calc_kb(info.totalswap, info.mem_unit);
     m_info->swap_free     = calc_kb(info.freeswap, info.mem_unit);
@@ -172,7 +174,7 @@ static int in_mem_collect(struct flb_input_instance *i_ins,
 {
     int ret;
     int len;
-    int entries = 6;/* (total,used,free) * (memory, swap) */
+    int entries = 8;/* (total,used,free) * (memory, swap) */
     struct proc_task *task = NULL;
     struct flb_in_mem_config *ctx = in_context;
     struct flb_in_mem_info info;
@@ -222,6 +224,14 @@ static int in_mem_collect(struct flb_input_instance *i_ins,
     msgpack_pack_uint64(&mp_pck, info.mem_free);
 
     msgpack_pack_str(&mp_pck, 10);
+    msgpack_pack_str_body(&mp_pck, "Mem.buffer", 10);
+    msgpack_pack_uint64(&mp_pck, info.mem_buffer);
+
+    msgpack_pack_str(&mp_pck, 10);
+    msgpack_pack_str_body(&mp_pck, "Mem.shared", 10);
+    msgpack_pack_uint64(&mp_pck, info.mem_shared);
+
+    msgpack_pack_str(&mp_pck, 10);
     msgpack_pack_str_body(&mp_pck, "Swap.total", 10);
     msgpack_pack_uint64(&mp_pck, info.swap_total);
 
@@ -250,8 +260,8 @@ static int in_mem_collect(struct flb_input_instance *i_ins,
         proc_free(task);
     }
 
-    flb_plg_trace(ctx->ins, "memory total=%lu kb, used=%lu kb, free=%lu kb",
-                  info.mem_total, info.mem_used, info.mem_free);
+    flb_plg_trace(ctx->ins, "memory total=%lu kb, used=%lu kb, free=%lu kb, buffer=%lu kb, shared=%lu kb",
+                  info.mem_total, info.mem_used, info.mem_free, info.mem_buffer, info.mem_shared);
     flb_plg_trace(ctx->ins, "swap total=%lu kb, used=%lu kb, free=%lu kb",
                   info.swap_total, info.swap_used, info.swap_free);
     ++ctx->idx;
