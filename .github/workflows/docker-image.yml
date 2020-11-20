@@ -15,7 +15,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Build the Docker image
-      run: 
+      run: |
         docker build --no-cache . --file Dockerfile --tag ifreecomm/fluent-bit:latest
         docker login -u kangliqi -p ${{ secrets.DOCKERHUB_TOKEN }}
         docker push ifreecomm/fluent-bit:latest
